@@ -1,4 +1,4 @@
-FROM alpine:3.15
+FROM alpine:3.16
 
 ENV TIMEZONE            America/Chicago
 ENV PHP_MEMORY_LIMIT    128M
