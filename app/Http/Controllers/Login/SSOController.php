@@ -9,7 +9,6 @@ use App\Helpers\RoleHelper;
 use App\Helpers\SMFHelper;
 use App\Helpers\EmailHelper;
 use App\Helpers\ULSHelper;
-use App\ExamResults;
 use App\Transfer;
 use App\User;
 use Illuminate\Http\RedirectResponse;
@@ -74,14 +73,10 @@ class SSOController extends Controller
             $request->session()->put('return', env('SSO_RETURN_FORUMS'));
         } elseif ($request->has('moodle')) {
             $request->session()->put('return', env('SSO_RETURN_MOODLE'));
+        } elseif ($request->has('moodle-test')) {
+            $request->session()->put('return', env('SSO_RETURN_MOODLE_TEST'));
         } elseif ($request->has('localdev')) {
             $request->session()->put('return', env('SSO_RETURN_LOCALDEV'));
-        } elseif ($request->has('uls')) {
-            $request->session()->put('return', env('SSO_RETURN_ULS'));
-        } elseif ($request->has("ulsv2")) {
-            $request->session()->put("return", env("SSO_RETURN_ULSv2"));
-        } elseif ($request->has('exam')) {
-            $request->session()->put('return', env('SSO_RETURN_EXAM', 'https://www.vatusa.net/exam/0'));
         } else {
             $request->session()->put('return', env('SSO_RETURN_FORUMS'));
         }
@@ -90,8 +85,8 @@ class SSOController extends Controller
         if (Auth::check()) {
             $return = $request->session()->get("return");
             $request->session()->forget("return");
-
-            return ULSHelper::doHandleLogin(Auth::user()->cid, $return);
+            $isTest = $request->has('moodle-test');
+            return ULSHelper::doHandleLogin(Auth::user()->cid, $return, $isTest);
         }
 
         return $this->sso->redirect($request);
@@ -103,7 +98,6 @@ class SSOController extends Controller
         if ($user instanceof RedirectResponse) {
             return $user;
         }
-        $isULS = $request->session()->has(['uls', 'ulsv2']);
 
         $return = session("return", env("SSO_RETURN_FORUMS"));
         session()->forget("return");
@@ -112,20 +106,20 @@ class SSOController extends Controller
         if ($user->vatsim->rating->id == 0) {
             $error = "You are suspended from the network. Therefore, login has been cancelled.";
 
-            return $isULS ? response($error, 403) : redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
+            return redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
         }
         if ($user->vatsim->rating->id < 0) {
             $error = "Your account has been disabled by VATSIM. This could be because of inactivity or a duplicate account. 
                 Please <a href='https://membership.vatsim.net/'>contact VATSIM Member Services</a> to resolve this issue.";
 
-            return $isULS ? response($error, 403) : redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
+            return redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
         }
         if (app()->environment("livedev") && !RoleHelper::isVATUSAStaff($user->cid, false,
                 true) && !in_array($user->cid,
                 explode(',', env("LIVEDEV_CIDS", "")))) {
             $error = "You are not authorized to access the live development website.";
 
-            return $isULS ? response($error, 403) : redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
+            return redirect(env('SSO_RETURN_HOME_ERROR'))->with('error', $error);
         }
 
         $member = User::find($user->cid);
@@ -168,11 +162,7 @@ class SSOController extends Controller
                 $log->save();
             }
         } else {
-            $passedBasic = ExamResults::where('cid',
-                    $member->cid)->where('exam_id', config('exams.BASIC.legacyId'))->where('passed',
-                    1)->where('date', '>=',
-                    Carbon::now()->subMonths(6))->exists() || ExamHelper::academyPassedExam($member->cid, "basic", 0,
-                    6);
+            $passedBasic = ExamHelper::academyPassedExam($member->cid, "basic", 0,6);
             //Update data
             if ($updateName) {
                 $member->fname = ucfirst(trim($user->personal->name_first));
@@ -294,8 +284,7 @@ class SSOController extends Controller
                 if ($data != "OK") {
                     $error = "Unable to create forum data. Please try again later or contact VATUSA12.";
 
-                    return $isULS ? response($error, 401) : redirect(env("SSO_RETURN_HOME_ERROR"))->with('error',
-                        $error);
+                    return redirect(env("SSO_RETURN_HOME_ERROR"))->with('error', $error);
                 }
             }
         }
